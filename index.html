@@ -63,6 +63,9 @@ h1{font:800 1.25rem/1 var(--f-display);margin:0;letter-spacing:-.01em}
 .videowrap{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3;max-width:100%}
 .videowrap video,.videowrap canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #overlay{image-rendering:pixelated;opacity:.75;mix-blend-mode:screen}
+.camseg{margin-bottom:10px;width:100%}
+.camseg button{flex:1}
+.videowrap.mirror video,.videowrap.mirror canvas{transform:scaleX(-1)}
 
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border-radius:14px;overflow:hidden;border:1px solid var(--line)}
 .stat{background:var(--surface);padding:10px 8px;display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -103,6 +106,10 @@ input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent)}
 
   <section class="card" id="camcard" hidden>
     <h2>Kamerabild <span id="fps"></span></h2>
+    <div class="seg camseg" role="group" aria-label="Kamera">
+      <button id="c-back" aria-pressed="true">Rückkamera</button>
+      <button id="c-front" aria-pressed="false">Frontkamera</button>
+    </div>
     <div class="videowrap">
       <video id="video" playsinline muted autoplay></video>
       <canvas id="overlay" width="80" height="60"></canvas>
@@ -274,11 +281,30 @@ const W = 80, H = 60, work = document.createElement("canvas"); work.width = W; w
 const wctx = work.getContext("2d", { willReadFrequently: true });
 const ov = $("overlay"), octx = ov.getContext("2d"), ovImg = octx.createImageData(W, H);
 let prev = null, ySm = null, dir = 0, ext = 0, frames = 0, fpsT = 0, lastTop = 0;
+let facing = load("facing", "environment");
+function setFacingButtons(){
+  $("c-back").setAttribute("aria-pressed", facing === "environment");
+  $("c-front").setAttribute("aria-pressed", facing === "user");
+}
+async function setFacing(f){
+  if (f === facing) return;
+  facing = f; save("facing", f); setFacingButtons();
+  if (running && mode === "camera") {
+    try { await startCamera(); setStatus(f === "user" ? "Frontkamera aktiv" : "Rückkamera aktiv"); }
+    catch (e) { $("hint").innerHTML = '<span class="err">' + (e.message || e) + "</span>"; stop(); }
+  }
+}
+$("c-back").onclick = () => setFacing("environment");
+$("c-front").onclick = () => setFacing("user");
+setFacingButtons();
 async function startCamera(){
   if (!navigator.mediaDevices?.getUserMedia) throw new Error("Kamera nicht verfügbar. Die Seite muss über HTTPS laufen.");
-  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } }, audio: false });
+  stream?.getTracks().forEach(t => t.stop());
+  document.querySelector(".videowrap").classList.toggle("mirror", facing === "user");
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } }, audio: false });
   const v = $("video"); v.srcObject = stream; await v.play();
   prev = null; ySm = null; dir = 0;
+  cancelAnimationFrame(rafId);
   const loop = () => { processFrame(v); rafId = requestAnimationFrame(loop); };
   loop();
 }
@@ -327,7 +353,7 @@ function setStatus(t, air){ $("status").textContent = t; $("status").classList.t
 function setHint(){
   $("hint").innerHTML = mode === "motion"
     ? "Handy fest am Körper tragen, zum Beispiel in einer engen Hosentasche oder einer Sportarmband-Halterung. Im Flug misst das Handy fast 0 g, bei der Landung ein Vielfaches davon. Daraus werden Flugzeit und Höhe berechnet."
-    : "Handy seitlich vom Trampolin aufstellen, so dass der ganze Sprung im Bild ist. Ruhiger Hintergrund und gutes Licht helfen. Flugzeit und Höhe gibt es nur im Sensor-Modus.";
+    : "Handy seitlich vom Trampolin aufstellen, so dass der ganze Sprung im Bild ist. Mit der Frontkamera siehst du den Zähler beim Springen selbst. Ruhiger Hintergrund und gutes Licht helfen. Flugzeit und Höhe gibt es nur im Sensor-Modus.";
   $("tracetitle").textContent = mode === "motion" ? "Beschleunigung (g)" : "Bewegungshöhe im Bild";
   $("camcard").hidden = mode !== "camera";
   ["s-best","s-avg","s-height"].forEach(id => $(id).parentElement.style.opacity = mode === "camera" ? .45 : 1);
